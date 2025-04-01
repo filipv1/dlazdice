@@ -50,14 +50,27 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
         znacka_radky = vazby_znacek[vazby_znacek.iloc[:, 2].str.lower() == nazev_znacky.lower()]
         id_znacky = znacka_radky.iloc[0, 0] if not znacka_radky.empty else ""
         
+        # Určení hodnoty pro sloupec D na základě slugu
+        slug = str(id_dlazdice).lower()
+        if slug.startswith("te"):
+            column_d_value = "leaflet"
+        elif slug.startswith("ma"):
+            column_d_value = "magazine"
+        elif slug.startswith("dz"):
+            column_d_value = "longTermDiscount"
+        elif slug.startswith("kp"):
+            column_d_value = "coupons"
+        else:
+            column_d_value = "leaflet"  # Výchozí hodnota
+        
         # Sestavení řádku
         novy_radek = {
             vzor.columns[0]: 1,
             vzor.columns[1]: klubova_akce,
             vzor.columns[2]: radek_akce.iloc[5],
-            vzor.columns[3]: 'leaflet',
+            vzor.columns[3]: column_d_value,  # Aplikace nové podmínky
             vzor.columns[4]: radek_akce.iloc[16] if len(radek_akce) > 16 else "",
-            vzor.columns[5]: str(id_dlazdice).lower(),
+            vzor.columns[5]: slug,
             vzor.columns[6]: radek_akce.iloc[2],
             vzor.columns[7]: radek_akce.iloc[4],
             vzor.columns[8]: f"{str(id_dlazdice).upper()}.jpg",
