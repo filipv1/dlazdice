@@ -86,10 +86,10 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
 st.title("Generátor marketingových akcí")
 st.write("Nahrajte 3 požadované soubory ve formátu XLSX:")
 
-# Upravený typ souborů - case insensitive
-vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type=["xlsx", "XLSX"])
-vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type=["xlsx", "XLSX"])
-zlm_file = st.file_uploader("3. Soubor ZLM", type=["xlsx", "XLSX"])
+# Opravený typ souborů - pouze jeden typ "xlsx"
+vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type=["xlsx"])
+vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type=["xlsx"])
+zlm_file = st.file_uploader("3. Soubor ZLM", type=["xlsx"])
 
 if st.button("Spustit generování"):
     if all([vazby_produktu_file, vazby_akci_file, zlm_file]):
