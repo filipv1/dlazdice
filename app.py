@@ -2,6 +2,19 @@ import pandas as pd
 import streamlit as st
 import re
 from datetime import datetime
+import os
+
+# Function to debug file uploaders
+def debug_file_info(file):
+    if file is not None:
+        st.text(f"File name: {file.name}")
+        st.text(f"File type: {file.type}")
+        st.text(f"File size: {file.size} bytes")
+        # Extract extension from filename
+        _, ext = os.path.splitext(file.name)
+        st.text(f"File extension: {ext}")
+    else:
+        st.text("No file uploaded")
 
 # Načtení defaultních souborů z kořenového adresáře
 @st.cache_data
@@ -86,15 +99,35 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
 st.title("Generátor marketingových akcí")
 st.write("Nahrajte 3 požadované soubory ve formátu XLSX:")
 
-# Opravený typ souborů - pouze jeden typ "xlsx"
-vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type=["xlsx"])
-vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type=["xlsx"])
-zlm_file = st.file_uploader("3. Soubor ZLM", type=["xlsx"])
+# Použití obecného typu souboru místo specifikace přípony
+vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type=None)
+vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type=None)
+zlm_file = st.file_uploader("3. Soubor ZLM", type=None)
+
+# Debugging informace
+if vazby_produktu_file:
+    st.text("Informace o souboru VAZBY produktu:")
+    debug_file_info(vazby_produktu_file)
+if vazby_akci_file:
+    st.text("Informace o souboru KEN (vazby akcí):")
+    debug_file_info(vazby_akci_file)
+if zlm_file:
+    st.text("Informace o souboru ZLM:")
+    debug_file_info(zlm_file)
 
 if st.button("Spustit generování"):
     if all([vazby_produktu_file, vazby_akci_file, zlm_file]):
         try:
             with st.spinner('Zpracovávám data...'):
+                # Kontrola, zda soubory mají správnou příponu .xlsx
+                for file, name in [(vazby_produktu_file, "VAZBY produktu"), 
+                                  (vazby_akci_file, "KEN (vazby akcí)"), 
+                                  (zlm_file, "ZLM")]:
+                    _, ext = os.path.splitext(file.name)
+                    if ext.lower() != '.xlsx':
+                        st.error(f"Soubor {name} nemá příponu .xlsx. Nahrajte prosím správný formát souboru.")
+                        st.stop()
+                
                 vazby_produktu = pd.read_excel(vazby_produktu_file)
                 vazby_akci = pd.read_excel(vazby_akci_file)
                 zlm = pd.read_excel(zlm_file)
