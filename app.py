@@ -86,9 +86,10 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
 st.title("Generátor marketingových akcí")
 st.write("Nahrajte 3 požadované soubory ve formátu XLSX:")
 
-vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type="xlsx")
-vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type="xlsx")
-zlm_file = st.file_uploader("3. Soubor ZLM", type="xlsx")
+# Upravený typ souborů - case insensitive
+vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type=["xlsx", "XLSX"])
+vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type=["xlsx", "XLSX"])
+zlm_file = st.file_uploader("3. Soubor ZLM", type=["xlsx", "XLSX"])
 
 if st.button("Spustit generování"):
     if all([vazby_produktu_file, vazby_akci_file, zlm_file]):
@@ -101,12 +102,16 @@ if st.button("Spustit generování"):
                 vysledek = zpracuj_soubory(vazby_produktu, vazby_akci, zlm)
                 
                 if vysledek is not None:
+                    # Upravený formát data a času
+                    timestamp = datetime.now().strftime('%d.%m.%Y 23:59')
+                    filename_timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+                    
                     csv = vysledek.to_csv(index=False, sep=';', encoding='utf-8-sig')
-                    st.success("Generování úspěšně dokončeno!")
+                    st.success(f"Generování úspěšně dokončeno! (Datum a čas: {timestamp})")
                     st.download_button(
                         label="Stáhnout výsledný soubor",
                         data=csv,
-                        file_name=f"vysledek_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                        file_name=f"vysledek_{filename_timestamp}.csv",
                         mime="text/csv"
                     )
         except Exception as e:
