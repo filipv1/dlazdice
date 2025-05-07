@@ -4,18 +4,6 @@ import re
 from datetime import datetime
 import os
 
-# Function to debug file uploaders
-def debug_file_info(file):
-    if file is not None:
-        st.text(f"File name: {file.name}")
-        st.text(f"File type: {file.type}")
-        st.text(f"File size: {file.size} bytes")
-        # Extract extension from filename
-        _, ext = os.path.splitext(file.name)
-        st.text(f"File extension: {ext}")
-    else:
-        st.text("No file uploaded")
-
 # Načtení defaultních souborů z kořenového adresáře
 @st.cache_data
 def nacti_defaultni_soubory():
@@ -104,22 +92,11 @@ vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type=None)
 vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type=None)
 zlm_file = st.file_uploader("3. Soubor ZLM", type=None)
 
-# Debugging informace
-if vazby_produktu_file:
-    st.text("Informace o souboru VAZBY produktu:")
-    debug_file_info(vazby_produktu_file)
-if vazby_akci_file:
-    st.text("Informace o souboru KEN (vazby akcí):")
-    debug_file_info(vazby_akci_file)
-if zlm_file:
-    st.text("Informace o souboru ZLM:")
-    debug_file_info(zlm_file)
-
 if st.button("Spustit generování"):
     if all([vazby_produktu_file, vazby_akci_file, zlm_file]):
         try:
             with st.spinner('Zpracovávám data...'):
-                # Kontrola, zda soubory mají správnou příponu .xlsx
+                # Kontrola, zda soubory mají správnou příponu .xlsx (case-insensitive)
                 for file, name in [(vazby_produktu_file, "VAZBY produktu"), 
                                   (vazby_akci_file, "KEN (vazby akcí)"), 
                                   (zlm_file, "ZLM")]:
@@ -149,5 +126,8 @@ if st.button("Spustit generování"):
                     )
         except Exception as e:
             st.error(f"Došlo k chybě: {str(e)}")
+            # Přidáno detailní zobrazení chyby
+            import traceback
+            st.error(f"Detaily chyby: {traceback.format_exc()}")
     else:
         st.warning("Prosím, nahrajte všechny požadované soubory!")
