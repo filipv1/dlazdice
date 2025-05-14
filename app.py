@@ -4,6 +4,13 @@ import re
 from datetime import datetime
 import os
 
+# Funkce pro normalizaci textu při porovnávání
+def normalize_text(text):
+    if not isinstance(text, str):
+        text = str(text)
+    # Odstranění nadbytečných mezer, převod na malá písmena
+    return re.sub(r'\s+', '', text.lower())
+
 # Načtení defaultních souborů z kořenového adresáře
 @st.cache_data
 def nacti_defaultni_soubory():
@@ -22,6 +29,12 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
         return None
 
     vysledek = pd.DataFrame(columns=vzor.columns)
+    
+    # Předpřipravení normalizované tabulky značek pro efektivnější vyhledávání
+    normalized_vazby_znacek = {}
+    for _, row in vazby_znacek.iterrows():
+        normalized_name = normalize_text(row.iloc[2])
+        normalized_vazby_znacek[normalized_name] = row.iloc[0]
     
     for _, radek_akce in vazby_akci.iterrows():
         novy_radek = {}
@@ -46,10 +59,10 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
                 klubova_akce = 1
                 break
         
-        # ID značky
+        # ID značky s normalizací textu
         nazev_znacky = radek_akce.iloc[6]
-        znacka_radky = vazby_znacek[vazby_znacek.iloc[:, 2].str.lower() == nazev_znacky.lower()]
-        id_znacky = znacka_radky.iloc[0, 0] if not znacka_radky.empty else ""
+        normalized_nazev = normalize_text(nazev_znacky)
+        id_znacky = normalized_vazby_znacek.get(normalized_nazev, "")
         
         # Určení hodnoty pro sloupec D na základě slugu
         slug = str(id_dlazdice).lower()
@@ -124,6 +137,10 @@ if st.button("Spustit generování"):
                         file_name=f"vysledek_{filename_timestamp}.csv",
                         mime="text/csv"
                     )
+                    
+                    # Přidání možnosti zobrazit tabulku s výsledky
+                    if st.checkbox("Zobrazit výslednou tabulku"):
+                        st.dataframe(vysledek)
         except Exception as e:
             st.error(f"Došlo k chybě: {str(e)}")
             # Přidáno detailní zobrazení chyby
