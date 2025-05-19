@@ -82,15 +82,16 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
             vzor.columns[0]: 1,
             vzor.columns[1]: klubova_akce,
             vzor.columns[2]: radek_akce.iloc[5],
-            vzor.columns[3]: column_d_value,  # Aplikace nové podmínky
+            vzor.columns[3]: column_d_value,
             vzor.columns[4]: radek_akce.iloc[16] if len(radek_akce) > 16 else "",
             vzor.columns[5]: slug,
             vzor.columns[6]: radek_akce.iloc[2],
-            vzor.columns[7]: str(radek_akce.iloc[4]) + " 23:59",  # rovnou složeno
+            vzor.columns[7]: f"{str(radek_akce.iloc[4])} 23:59",  # stále string
             vzor.columns[8]: f"{str(id_dlazdice).upper()}.jpg",
             vzor.columns[9]: id_znacky,
             vzor.columns[10]: ','.join(kody_zbozi)
         }
+
 
         
         vysledek = pd.concat([vysledek, pd.DataFrame([novy_radek])], ignore_index=True)
