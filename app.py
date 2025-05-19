@@ -77,6 +77,27 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
         else:
             column_d_value = "leaflet"  # Výchozí hodnota
         
+        # Zpracování datumu - úprava formátu pro sloupec H
+        datum_hodnota = radek_akce.iloc[4]
+        
+        # Pokud je datum datetime objekt, převedeme ho na formátovaný string
+        if isinstance(datum_hodnota, datetime):
+            datum_string = datum_hodnota.strftime('%Y-%m-%d')
+        else:
+            # Pokud je již string nebo jiný typ, zkusíme převést na správný formát
+            try:
+                if pd.isna(datum_hodnota):
+                    datum_string = ""
+                else:
+                    # Pokud je to string, zkusíme ho přeformátovat
+                    datum_obj = pd.to_datetime(datum_hodnota)
+                    datum_string = datum_obj.strftime('%Y-%m-%d')
+            except:
+                # Pokud převod selže, použijeme original jako string
+                datum_string = str(datum_hodnota)
+        
+        # Sestavení hodnoty pro sloupec H ve formátu "YYYY-MM-DD 23:59"
+        sloupec_h_hodnota = f"{datum_string} 23:59" if datum_string else ""
         
         novy_radek = {
             vzor.columns[0]: 1,
@@ -86,13 +107,11 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
             vzor.columns[4]: radek_akce.iloc[16] if len(radek_akce) > 16 else "",
             vzor.columns[5]: slug,
             vzor.columns[6]: radek_akce.iloc[2],
-            vzor.columns[7]: f"{str(radek_akce.iloc[4])} 23:59",  # stále string
+            vzor.columns[7]: sloupec_h_hodnota,  # použití formátovaného data
             vzor.columns[8]: f"{str(id_dlazdice).upper()}.jpg",
             vzor.columns[9]: id_znacky,
             vzor.columns[10]: ','.join(kody_zbozi)
         }
-
-
         
         vysledek = pd.concat([vysledek, pd.DataFrame([novy_radek])], ignore_index=True)
     
@@ -128,7 +147,7 @@ if st.button("Spustit generování"):
                 
                 if vysledek is not None:
                     # Upravený formát data a času
-                    timestamp = datetime.now().strftime('%d.%m.%Y 23:59')
+                    timestamp = datetime.now().strftime('%d.%m.%Y %H:%M')
                     filename_timestamp = datetime.now().strftime('%Y%m%d_%H%M')
                     
                     csv = vysledek.to_csv(index=False, sep=';', encoding='utf-8-sig')
