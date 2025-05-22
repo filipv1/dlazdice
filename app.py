@@ -66,6 +66,11 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
         
         # Určení hodnoty pro sloupec D na základě slugu
         slug = str(id_dlazdice).lower()
+
+        # Add this new block for 'SK' condition
+        if slug.startswith("sk"):
+            klubova_akce = 1
+        
         if slug.startswith("te"):
             column_d_value = "leaflet"
         elif slug.startswith("ma"):
