@@ -22,7 +22,7 @@ def nacti_defaultni_soubory():
         st.error(f"Chyba při načítání defaultních souborů: {e}")
         return None, None
 
-# Hlavní funkce pro zpracování
+# Hlavní funkce pro zpracování s diagnostikou
 def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
     vzor, vazby_znacek = nacti_defaultni_soubory()
     if vzor is None or vazby_znacek is None:
@@ -36,20 +36,49 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
         normalized_name = normalize_text(row.iloc[2])
         normalized_vazby_znacek[normalized_name] = row.iloc[0]
     
-    for _, radek_akce in vazby_akci.iterrows():
+    # DIAGNOSTIKA: Zobrazení struktury souborů
+    st.write("**DIAGNOSTIKA - Struktura souborů:**")
+    st.write(f"Vazby produktu - sloupce: {list(vazby_produktu.columns)}")
+    st.write(f"Vazby akcí - sloupce: {list(vazby_akci.columns)}")
+    st.write(f"ZLM - sloupce: {list(zlm.columns)}")
+    st.write(f"Počet řádků - Vazby produktu: {len(vazby_produktu)}, Vazby akcí: {len(vazby_akci)}, ZLM: {len(zlm)}")
+    
+    for index, radek_akce in vazby_akci.iterrows():
+        st.write(f"\n**ZPRACOVÁNÍ ŘÁDKU {index + 1}:**")
+        
         novy_radek = {}
         id_dlazdice = radek_akce.iloc[1]
+        st.write(f"ID dlaždice: {id_dlazdice}")
         
-        # Získání kódů zboží
+        # Získání kódů zboží s diagnostikou
         filtrovane_radky = vazby_produktu[vazby_produktu.iloc[:, 2] == id_dlazdice]
+        st.write(f"Počet filtrovaných řádků v 'vazby produktu': {len(filtrovane_radky)}")
+        
+        if len(filtrovane_radky) == 0:
+            st.warning(f"⚠️ Nenalezeny žádné řádky v 'vazby produktu' pro ID dlaždice: {id_dlazdice}")
+            st.write(f"Dostupné hodnoty ve 3. sloupci 'vazby produktu': {vazby_produktu.iloc[:, 2].unique()[:10]}...")
+        
         obicis_list = filtrovane_radky.iloc[:, 0].tolist()
+        st.write(f"OBICIS seznam: {obicis_list}")
         
         kody_zbozi = []
         for obicis in obicis_list:
+            st.write(f"  Zpracovávám OBICIS: {obicis}")
             radky_zlm = zlm[zlm.iloc[:, 2] == obicis]
+            st.write(f"    Nalezeno řádků v ZLM: {len(radky_zlm)}")
+            
+            if len(radky_zlm) == 0:
+                st.warning(f"    ⚠️ Nenalezen žádný řádek v ZLM pro OBICIS: {obicis}")
+                st.write(f"    Dostupné hodnoty ve 3. sloupci ZLM: {zlm.iloc[:, 2].unique()[:10]}...")
+            
             if not radky_zlm.empty:
-                kod_zbozi = str(radky_zlm.iloc[0, 1]).split('.')[0].zfill(18)
+                raw_kod = radky_zlm.iloc[0, 1]
+                st.write(f"    Surový kód z ZLM: {raw_kod}")
+                kod_zbozi = str(raw_kod).split('.')[0].zfill(18)
+                st.write(f"    Zpracovaný kód: {kod_zbozi}")
                 kody_zbozi.append(kod_zbozi)
+        
+        st.write(f"Finální kódy zboží: {kody_zbozi}")
         
         # Klubová akce
         klubova_akce = 0
@@ -118,12 +147,14 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
             vzor.columns[10]: ','.join(kody_zbozi)
         }
         
+        st.write(f"**Hodnota posledního sloupce: '{','.join(kody_zbozi)}'**")
+        
         vysledek = pd.concat([vysledek, pd.DataFrame([novy_radek])], ignore_index=True)
     
     return vysledek
 
 # Streamlit UI
-st.title("Generátor marketingových akcí")
+st.title("Generátor marketingových akcí - Diagnostická verze")
 st.write("Nahrajte 3 požadované soubory ve formátu XLSX:")
 
 # Použití obecného typu souboru místo specifikace přípony
@@ -131,7 +162,7 @@ vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type=None)
 vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type=None)
 zlm_file = st.file_uploader("3. Soubor ZLM", type=None)
 
-if st.button("Spustit generování"):
+if st.button("Spustit generování s diagnostikou"):
     if all([vazby_produktu_file, vazby_akci_file, zlm_file]):
         try:
             with st.spinner('Zpracovávám data...'):
