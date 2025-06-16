@@ -15,6 +15,24 @@ def normalize_text(text):
     # Odstranění nadbytečných mezer, převod na malá písmena
     return re.sub(r'\s+', '', text.lower())
 
+# NOVÁ FUNKCE: Normalizace OBICIS kódů
+def normalize_obicis(obicis_code):
+    """Normalizuje OBICIS kód odstraněním úvodních nul a mezer"""
+    if pd.isna(obicis_code):
+        return ""
+    
+    # Převedeme na string a odstraníme mezery
+    code_str = str(obicis_code).strip()
+    
+    # Odstraníme úvodní nuly
+    code_normalized = code_str.lstrip('0')
+    
+    # Pokud je kód prázdný (byly tam jen nuly), vrátíme "0"
+    if not code_normalized:
+        code_normalized = "0"
+    
+    return code_normalized
+
 # Načtení defaultních souborů z kořenového adresáře
 @st.cache_data(max_entries=3, ttl=3600)  # Zvýšený cache pro větší soubory
 def nacti_defaultni_soubory():
@@ -94,9 +112,9 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
             vazby_produktu_dict[key] = []
         vazby_produktu_dict[key].append(value)
     
-    # Index pro ZLM (3. sloupec -> 2. sloupec a 13. sloupec)
-    # Řešíme duplicity - použijeme první výskyt každého OBICIS
+    # UPRAVENÝ Index pro ZLM s normalizací OBICIS kódů
     zlm_dict = {}
+    zlm_dict_original = {}  # Zachováme i originální klíče pro diagnostiku
     duplicity_count = 0
     
     for _, row in zlm.iterrows():
@@ -106,20 +124,27 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
             continue
             
         # Převedeme na string a normalizujeme
-        key = str(key_raw).strip()
+        key_original = str(key_raw).strip()
+        key_normalized = normalize_obicis(key_original)
         
-        # Pokud už klíč existuje, počítáme duplicity
-        if key in zlm_dict:
+        # Pokud už normalizovaný klíč existuje, počítáme duplicity
+        if key_normalized in zlm_dict:
             duplicity_count += 1
-            st.write(f"⚠️ Duplicitní OBICIS: {key} (použije se první výskyt)")
+            st.write(f"⚠️ Duplicitní OBICIS: {key_original} -> {key_normalized} (použije se první výskyt)")
             continue
             
         kod_zbozi = str(row.iloc[1])  # Kód zboží
         klubova_info = str(row.iloc[12]) if len(row) > 12 else ""  # Klubová informace
-        zlm_dict[key] = {
+        
+        # Uložíme pod normalizovaný klíč
+        zlm_dict[key_normalized] = {
             'kod_zbozi': kod_zbozi,
-            'klubova_info': klubova_info
+            'klubova_info': klubova_info,
+            'original_key': key_original
         }
+        
+        # Uložíme i originální klíč pro diagnostiku
+        zlm_dict_original[key_original] = key_normalized
     
     if duplicity_count > 0:
         st.warning(f"Nalezeno {duplicity_count} duplicitních OBICIS kódů v ZLM souboru!")
@@ -134,7 +159,8 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
     
     # Ukázka několika ukázkových klíčů z indexů
     st.write(f"Ukázka klíčů z vazby_produktu_dict: {list(vazby_produktu_dict.keys())[:10]}")
-    st.write(f"Ukázka klíčů z zlm_dict: {list(zlm_dict.keys())[:10]}")
+    st.write(f"Ukázka originálních klíčů z ZLM: {list(zlm_dict_original.keys())[:10]}")
+    st.write(f"Ukázka normalizovaných klíčů z ZLM: {list(zlm_dict.keys())[:10]}")
     
     progress_bar = st.progress(0)
     total_rows = len(vazby_akci)
@@ -168,19 +194,21 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
         
         for obicis in obicis_list:
             # Normalizujeme OBICIS pro vyhledávání
-            obicis_normalized = str(obicis).strip()
+            obicis_original = str(obicis).strip()
+            obicis_normalized = normalize_obicis(obicis_original)
             
             if index < 3:
-                st.write(f"  Zpracovávám OBICIS: '{obicis_normalized}'")
+                st.write(f"  Zpracovávám OBICIS: '{obicis_original}' -> normalizováno: '{obicis_normalized}'")
             
             zlm_data = zlm_dict.get(obicis_normalized)
             
             if zlm_data:
                 raw_kod = zlm_data['kod_zbozi']
                 klubova_info = zlm_data['klubova_info']
+                original_key = zlm_data['original_key']
                 
                 if index < 3:
-                    st.write(f"    ✅ Nalezen v ZLM! Surový kód: '{raw_kod}'")
+                    st.write(f"    ✅ Nalezen v ZLM! Originální klíč: '{original_key}', Surový kód: '{raw_kod}'")
                 
                 # Zpracování kódu zboží
                 kod_zbozi = str(raw_kod).split('.')[0].zfill(18)
@@ -194,15 +222,15 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
                     klubova_akce = 1
             else:
                 if index < 3:
-                    st.warning(f"    ⚠️ Nenalezen záznam v ZLM pro OBICIS: '{obicis_normalized}'")
+                    st.warning(f"    ⚠️ Nenalezen záznam v ZLM pro OBICIS: '{obicis_normalized}' (originál: '{obicis_original}')")
                     # Zkusíme najít podobné klíče
                     podobne_klice = [k for k in list(zlm_dict.keys())[:50] if obicis_normalized in k or k in obicis_normalized]
                     if podobne_klice:
-                        st.write(f"    Podobné klíče nalezené: {podobne_klice[:5]}")
+                        st.write(f"    Podobné normalizované klíče nalezené: {podobne_klice[:5]}")
                     else:
                         st.write(f"    Žádné podobné klíče nenalezeny")
                         st.write(f"    Typ hledaného klíče: {type(obicis_normalized)}, délka: {len(obicis_normalized)}")
-                        st.write(f"    Prvních 10 klíčů v ZLM: {list(zlm_dict.keys())[:10]}")
+                        st.write(f"    Prvních 10 normalizovaných klíčů v ZLM: {list(zlm_dict.keys())[:10]}")
         
         if index < 3:
             st.write(f"Finální kódy zboží: {kody_zbozi}")
@@ -283,7 +311,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("Generátor marketingových akcí - Optimalizovaná verze pro velké soubory")
+st.title("Generátor marketingových akcí - Opravená verze s normalizací OBICIS")
 st.write("Nahrajte 3 požadované soubory ve formátu XLSX (podporuje až desítky tisíc řádků):")
 
 # Zvýšený limit pro upload souborů
@@ -295,7 +323,7 @@ vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type=None, he
 vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type=None, help="Excel soubor s vazbami akcí")
 zlm_file = st.file_uploader("3. Soubor ZLM", type=None, help="Excel soubor ZLM (může obsahovat tisíce řádků)")
 
-if st.button("Spustit generování s optimalizací pro velké soubory"):
+if st.button("Spustit generování s opravou OBICIS normalizace"):
     if all([vazby_produktu_file, vazby_akci_file, zlm_file]):
         try:
             with st.spinner('Načítám a zpracovávám data (může trvat několik minut pro velké soubory)...'):
@@ -351,17 +379,27 @@ if st.button("Spustit generování s optimalizací pro velké soubory"):
     else:
         st.warning("Prosím, nahrajte všechny požadované soubory!")
 
-# Přidáme informace o optimalizaci
-with st.expander("ℹ️ Informace o optimalizaci pro velké soubory"):
+# Přidáme informace o opravě
+with st.expander("🔧 Informace o opravě OBICIS normalizace"):
     st.write("""
-    **Optimalizace pro velké soubory (až 10k+ řádků):**
+    **Oprava problému s OBICIS kódy:**
     
-    1. **Indexování dat**: Vytváří se slovníky pro rychlé vyhledávání místo procházení celých tabulek
-    2. **Optimalizovaný cache**: Zvýšená kapacita pro ukládání velkých souborů v paměti
-    3. **Stringová konzistence**: Všechna ID se převádějí na stringy pro konzistentní porovnávání
-    4. **Progress bar**: Zobrazuje průběh zpracování dlouhých operací
-    5. **Omezená diagnostika**: Detailní výstup pouze pro první 3 řádky
-    6. **Statistiky**: Souhrn úspěšnosti zpracování na konci
+    **Problém**: OBICIS kódy se v různých souborech liší formátem úvodních nul:
+    - V souboru VAZBY: `32001256` (bez úvodních nul)
+    - V souboru ZLM: `0032001256` (s úvodními nulami)
     
-    **Výkon**: Zpracování 10k řádků by mělo trvat několik sekund až minut místo hodin.
+    **Řešení**:
+    1. **Funkce `normalize_obicis()`**: Odstraňuje úvodní nuly z OBICIS kódů
+    2. **Normalizace při indexování**: Všechny OBICIS kódy v ZLM jsou normalizovány při vytváření indexu
+    3. **Normalizace při vyhledávání**: OBICIS kódy z VAZBY jsou také normalizovány před vyhledáváním
+    4. **Zachování originálů**: Pro diagnostiku se uchovávají i originální formáty
+    
+    **Výsledek**: 
+    - `32001256` i `0032001256` se budou považovat za stejný kód
+    - Zvýší se úspěšnost párování OBICIS kódů
+    - Diagnostika ukáže jak originální, tak normalizované hodnoty
+    
+    **Další vylepšení**:
+    - Lepší diagnostika s ukázkou normalizace
+    - Zobrazení statistik úspěšnosti párování
     """)
