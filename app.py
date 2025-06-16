@@ -78,22 +78,51 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
     # Index pro vazby_produktu (3. sloupec -> 1. sloupec)
     vazby_produktu_dict = {}
     for _, row in vazby_produktu.iterrows():
-        key = str(row.iloc[2])  # ID dlaždice
-        value = str(row.iloc[0])  # OBICIS
+        # Normalizujeme klíč
+        key_raw = row.iloc[2]
+        if pd.isna(key_raw):
+            continue
+        key = str(key_raw).strip()  # ID dlaždice
+        
+        # Normalizujeme hodnotu
+        value_raw = row.iloc[0]
+        if pd.isna(value_raw):
+            continue
+        value = str(value_raw).strip()  # OBICIS
+        
         if key not in vazby_produktu_dict:
             vazby_produktu_dict[key] = []
         vazby_produktu_dict[key].append(value)
     
     # Index pro ZLM (3. sloupec -> 2. sloupec a 13. sloupec)
+    # Řešíme duplicity - použijeme první výskyt každého OBICIS
     zlm_dict = {}
+    duplicity_count = 0
+    
     for _, row in zlm.iterrows():
-        key = str(row.iloc[2])  # OBICIS
+        # Normalizujeme klíč - převedeme na string a odstraníme mezery
+        key_raw = row.iloc[2]
+        if pd.isna(key_raw):
+            continue
+            
+        # Převedeme na string a normalizujeme
+        key = str(key_raw).strip()
+        
+        # Pokud už klíč existuje, počítáme duplicity
+        if key in zlm_dict:
+            duplicity_count += 1
+            st.write(f"⚠️ Duplicitní OBICIS: {key} (použije se první výskyt)")
+            continue
+            
         kod_zbozi = str(row.iloc[1])  # Kód zboží
         klubova_info = str(row.iloc[12]) if len(row) > 12 else ""  # Klubová informace
         zlm_dict[key] = {
             'kod_zbozi': kod_zbozi,
             'klubova_info': klubova_info
         }
+    
+    if duplicity_count > 0:
+        st.warning(f"Nalezeno {duplicity_count} duplicitních OBICIS kódů v ZLM souboru!")
     
     st.write(f"Indexy vytvořeny. Vazby produktu: {len(vazby_produktu_dict)} klíčů, ZLM: {len(zlm_dict)} klíčů")
     
@@ -117,7 +146,10 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
             st.write(f"\n**ZPRACOVÁNÍ ŘÁDKU {index + 1}:**")
         
         novy_radek = {}
-        id_dlazdice = str(radek_akce.iloc[1])  # Převedeme na string pro konzistenci
+        id_dlazdice_raw = radek_akce.iloc[1]
+        if pd.isna(id_dlazdice_raw):
+            continue
+        id_dlazdice = str(id_dlazdice_raw).strip()  # Normalizujeme ID dlaždice
         
         if index < 3:
             st.write(f"ID dlaždice: '{id_dlazdice}'")
@@ -135,17 +167,20 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
         klubova_akce = 0
         
         for obicis in obicis_list:
-            if index < 3:
-                st.write(f"  Zpracovávám OBICIS: '{obicis}'")
+            # Normalizujeme OBICIS pro vyhledávání
+            obicis_normalized = str(obicis).strip()
             
-            zlm_data = zlm_dict.get(obicis)
+            if index < 3:
+                st.write(f"  Zpracovávám OBICIS: '{obicis_normalized}'")
+            
+            zlm_data = zlm_dict.get(obicis_normalized)
             
             if zlm_data:
                 raw_kod = zlm_data['kod_zbozi']
                 klubova_info = zlm_data['klubova_info']
                 
                 if index < 3:
-                    st.write(f"    Surový kód z ZLM: '{raw_kod}'")
+                    st.write(f"    ✅ Nalezen v ZLM! Surový kód: '{raw_kod}'")
                 
                 # Zpracování kódu zboží
                 kod_zbozi = str(raw_kod).split('.')[0].zfill(18)
@@ -159,8 +194,15 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
                     klubova_akce = 1
             else:
                 if index < 3:
-                    st.warning(f"    ⚠️ Nenalezen záznam v ZLM pro OBICIS: '{obicis}'")
-                    st.write(f"    Dostupné klíče v zlm_dict (prvních 20): {list(zlm_dict.keys())[:20]}")
+                    st.warning(f"    ⚠️ Nenalezen záznam v ZLM pro OBICIS: '{obicis_normalized}'")
+                    # Zkusíme najít podobné klíče
+                    podobne_klice = [k for k in list(zlm_dict.keys())[:50] if obicis_normalized in k or k in obicis_normalized]
+                    if podobne_klice:
+                        st.write(f"    Podobné klíče nalezené: {podobne_klice[:5]}")
+                    else:
+                        st.write(f"    Žádné podobné klíče nenalezeny")
+                        st.write(f"    Typ hledaného klíče: {type(obicis_normalized)}, délka: {len(obicis_normalized)}")
+                        st.write(f"    Prvních 10 klíčů v ZLM: {list(zlm_dict.keys())[:10]}")
         
         if index < 3:
             st.write(f"Finální kódy zboží: {kody_zbozi}")
