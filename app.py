@@ -136,11 +136,22 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
         kody_zbozi = []
         klubova_akce = 0
         
-        # LOGIKA PRO KLUBovou akci
+        # ### OPRAVENÁ LOGIKA ZDE ###
+        # LOGIKA PRO KLUBovou akci - Krok 1: Kontrola sloupce H z KEN
         ken_sloupec_h = str(radek_akce.iloc[7]).strip() if len(radek_akce) > 7 else ""
-        if ken_sloupec_h == "1":
+        is_ken_h_one = False
+        try:
+            # Pokusíme se hodnotu převést na číslo a porovnat s 1
+            if int(float(ken_sloupec_h)) == 1:
+                is_ken_h_one = True
+        except (ValueError, TypeError):
+            # Pokud převod selže (text, prázdná buňka), podmínka není splněna
+            is_ken_h_one = False
+
+        if is_ken_h_one:
             klubova_akce = 1
         
+        # LOGIKA PRO KLUBovou akci - Krok 2: Kontrola ZLM
         zlm_klub_info_values = []
         zlm_condition_met = False
         for obicis in obicis_list:
@@ -157,6 +168,7 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
                     klubova_akce = 1
                     zlm_condition_met = True
         
+        # LOGIKA PRO KLUBovou akci - Krok 3: Kontrola prefixu ID
         slug = id_dlazdice.lower()
         if slug.startswith("sk"):
             klubova_akce = 1
@@ -174,7 +186,7 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
             st.write(f"**DIAGNOSTICKÝ PŘEHLED pro řádek {index+1} (ID dlaždice: `{id_dlazdice}`)**")
             
             # Podmínka 1
-            st.write(f"- `Podmínka 1 (KEN Sloupec H)`: Nalezená hodnota je **'{ken_sloupec_h}'**. Podmínka (`== '1'`) je **{'splněna' if ken_sloupec_h == '1' else 'nesplněna'}**.")
+            st.write(f"- `Podmínka 1 (KEN Sloupec H)`: Nalezená hodnota je **'{ken_sloupec_h}'**. Podmínka (číselně == 1) je **{'splněna' if is_ken_h_one else 'nesplněna'}**.")
             
             # Podmínka 2
             if not zlm_klub_info_values:
