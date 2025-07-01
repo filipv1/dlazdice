@@ -192,6 +192,14 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
         kody_zbozi = []
         klubova_akce = 0
         
+        # NOVÁ LOGIKA: Kontrola sloupce H z KEN souboru (index 7)
+        ken_sloupec_h = str(radek_akce.iloc[7]).strip() if len(radek_akce) > 7 else ""
+        
+        if ken_sloupec_h == "1":
+            klubova_akce = 1
+            if index < 3:
+                st.write(f"✅ Klubová akce nastavena na 1 - sloupec H z KEN obsahuje '1'")
+        
         for obicis in obicis_list:
             # Normalizujeme OBICIS pro vyhledávání
             obicis_original = str(obicis).strip()
@@ -217,9 +225,11 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
                 if index < 3:
                     st.write(f"    Zpracovaný kód: '{kod_zbozi}'")
                 
-                # Kontrola klubové akce
+                # Kontrola klubové akce z ZLM
                 if klubova_info.strip().upper().startswith("MK"):
                     klubova_akce = 1
+                    if index < 3:
+                        st.write(f"    ✅ Klubová akce nastavena na 1 - ZLM obsahuje 'MK' pro OBICIS: {obicis_normalized}")
             else:
                 if index < 3:
                     st.warning(f"    ⚠️ Nenalezen záznam v ZLM pro OBICIS: '{obicis_normalized}' (originál: '{obicis_original}')")
@@ -232,20 +242,14 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
                         st.write(f"    Typ hledaného klíče: {type(obicis_normalized)}, délka: {len(obicis_normalized)}")
                         st.write(f"    Prvních 10 normalizovaných klíčů v ZLM: {list(zlm_dict.keys())[:10]}")
         
-        if index < 3:
-            st.write(f"Finální kódy zboží: {kody_zbozi}")
-        
-        # ID značky s normalizací textu
-        nazev_znacky = radek_akce.iloc[6]
-        normalized_nazev = normalize_text(nazev_znacky)
-        id_znacky = normalized_vazby_znacek.get(normalized_nazev, "")
-        
         # Určení hodnoty pro sloupec D na základě slugu
         slug = str(id_dlazdice).lower()
 
-        # Add this new block for 'SK' condition
+        # Kontrola ID začínajícího na 'sk'
         if slug.startswith("sk"):
             klubova_akce = 1
+            if index < 3:
+                st.write(f"✅ Klubová akce nastavena na 1 - ID začíná 'sk'")
         
         if slug.startswith("te"):
             column_d_value = "leaflet"
@@ -257,6 +261,16 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
             column_d_value = "coupons"
         else:
             column_d_value = "leaflet"  # Výchozí hodnota
+        
+        if index < 3:
+            st.write(f"Finální kódy zboží: {kody_zbozi}")
+            st.write(f"Finální hodnota klubová akce: {klubova_akce}")
+            st.write(f"Sloupec H z KEN: '{ken_sloupec_h}'")
+        
+        # ID značky s normalizací textu
+        nazev_znacky = radek_akce.iloc[6]
+        normalized_nazev = normalize_text(nazev_znacky)
+        id_znacky = normalized_vazby_znacek.get(normalized_nazev, "")
         
         # Zpracování datumu - úprava formátu pro sloupec H
         datum_hodnota = radek_akce.iloc[4]
@@ -282,7 +296,7 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
         
         novy_radek = {
             vzor.columns[0]: 1,
-            vzor.columns[1]: klubova_akce,
+            vzor.columns[1]: klubova_akce,  # UPRAVENÁ LOGIKA - může být 1 z více důvodů
             vzor.columns[2]: radek_akce.iloc[5],
             vzor.columns[3]: column_d_value,
             vzor.columns[4]: radek_akce.iloc[16] if len(radek_akce) > 16 else "",
@@ -311,7 +325,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("Generátor marketingových akcí - Opravená verze s normalizací OBICIS")
+st.title("Generátor marketingových akcí - Upravená verze s novou logikou klubové akce")
 st.write("Nahrajte 3 požadované soubory ve formátu XLSX (podporuje až desítky tisíc řádků):")
 
 # Zvýšený limit pro upload souborů
@@ -323,7 +337,7 @@ vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type=None, he
 vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type=None, help="Excel soubor s vazbami akcí")
 zlm_file = st.file_uploader("3. Soubor ZLM", type=None, help="Excel soubor ZLM (může obsahovat tisíce řádků)")
 
-if st.button("Spustit generování s opravou OBICIS normalizace"):
+if st.button("Spustit generování s upravenou logikou klubové akce"):
     if all([vazby_produktu_file, vazby_akci_file, zlm_file]):
         try:
             with st.spinner('Načítám a zpracovávám data (může trvat několik minut pro velké soubory)...'):
@@ -370,6 +384,7 @@ if st.button("Spustit generování s opravou OBICIS normalizace"):
                     st.write(f"- Zpracováno řádků: {len(vysledek)}")
                     st.write(f"- Řádky s vyplněnými kódy zboží: {len(vysledek[vysledek.iloc[:, 10] != ''])}")
                     st.write(f"- Řádky bez kódů zboží: {len(vysledek[vysledek.iloc[:, 10] == ''])}")
+                    st.write(f"- Řádky s klubovou akcí (sloupec B = 1): {len(vysledek[vysledek.iloc[:, 1] == 1])}")
                     
         except Exception as e:
             st.error(f"Došlo k chybě: {str(e)}")
@@ -379,7 +394,31 @@ if st.button("Spustit generování s opravou OBICIS normalizace"):
     else:
         st.warning("Prosím, nahrajte všechny požadované soubory!")
 
-# Přidáme informace o opravě
+# Přidáme informace o nové logice
+with st.expander("🔧 Informace o nové logice klubové akce"):
+    st.write("""
+    **Nová logika pro sloupec B (klubová akce):**
+    
+    **Sloupec B ve výsledku = 1**, pokud platí JAKÁKOLI z těchto podmínek:
+    
+    1. **Sloupec H z KEN souboru obsahuje "1"**
+       - Nová podmínka pro přímé označení klubové akce v KEN souboru
+    
+    2. **ZLM obsahuje "MK" v sloupci M (index 12)**
+       - Původní logika na základě klubové informace v ZLM
+    
+    3. **ID dlaždice začíná "sk"**
+       - Původní logika na základě prefixu ID
+    
+    **Provázání dat:**
+    - Sloupec B z KEN → Sloupec F výsledku (identifikace)
+    - Sloupec H z KEN → Logika pro sloupec B výsledku (klubová akce)
+    
+    **Diagnostika:**
+    - Zobrazuje se, která podmínka způsobila nastavení klubové akce
+    - Přidaná statistika počtu řádků s klubovou akcí
+    """)
+
 with st.expander("🔧 Informace o opravě OBICIS normalizace"):
     st.write("""
     **Oprava problému s OBICIS kódy:**
@@ -398,8 +437,4 @@ with st.expander("🔧 Informace o opravě OBICIS normalizace"):
     - `32001256` i `0032001256` se budou považovat za stejný kód
     - Zvýší se úspěšnost párování OBICIS kódů
     - Diagnostika ukáže jak originální, tak normalizované hodnoty
-    
-    **Další vylepšení**:
-    - Lepší diagnostika s ukázkou normalizace
-    - Zobrazení statistik úspěšnosti párování
     """)
