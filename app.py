@@ -65,7 +65,7 @@ def nacti_velky_excel(file_data, file_name):
                     # Testujeme, jestli je možné převést na číslo
                     pd.to_numeric(df[col], errors='raise')
                     df[col] = pd.to_numeric(df[col], errors='coerce')
-                except:
+                except (ValueError, TypeError):
                     # Pokud ne, necháme jako string
                     pass
         
@@ -76,84 +76,50 @@ def nacti_velky_excel(file_data, file_name):
         st.error(f"Chyba při načítání souboru {file_name}: {e}")
         return None
 
-# Optimalizovaná hlavní funkce pro zpracování s vylepšenou diagnostikou
-def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
+# Hlavní funkce pro zpracování s volitelnou plnou diagnostikou
+def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
     vzor, vazby_znacek = nacti_defaultni_soubory()
     if vzor is None or vazby_znacek is None:
         return None
 
     vysledek = pd.DataFrame(columns=vzor.columns)
     
-    # Předpřipravení normalizované tabulky značek pro efektivnější vyhledávání
-    normalized_vazby_znacek = {}
-    for _, row in vazby_znacek.iterrows():
-        normalized_name = normalize_text(row.iloc[2])
-        normalized_vazby_znacek[normalized_name] = row.iloc[0]
-    
-    # OPTIMALIZACE: Vytvoříme indexy pro rychlejší vyhledávání
+    # Příprava vyhledávacích slovníků (indexů)
     st.write("Vytvářím indexy pro rychlejší zpracování...")
     
-    # Index pro vazby_produktu (3. sloupec -> 1. sloupec)
+    normalized_vazby_znacek = {normalize_text(row.iloc[2]): row.iloc[0] for _, row in vazby_znacek.iterrows()}
+    
     vazby_produktu_dict = {}
     for _, row in vazby_produktu.iterrows():
-        key_raw = row.iloc[2]
-        if pd.isna(key_raw):
+        key_raw, value_raw = row.iloc[2], row.iloc[0]
+        if pd.isna(key_raw) or pd.isna(value_raw):
             continue
-        key = str(key_raw).strip()  # ID dlaždice
-        
-        value_raw = row.iloc[0]
-        if pd.isna(value_raw):
-            continue
-        value = str(value_raw).strip()  # OBICIS
-        
-        if key not in vazby_produktu_dict:
-            vazby_produktu_dict[key] = []
-        vazby_produktu_dict[key].append(value)
+        key = str(key_raw).strip()
+        vazby_produktu_dict.setdefault(key, []).append(str(value_raw).strip())
     
-    # UPRAVENÝ Index pro ZLM s normalizací OBICIS kódů
     zlm_dict = {}
-    zlm_dict_original = {}  # Zachováme i originální klíče pro diagnostiku
     duplicity_count = 0
-    
     for _, row in zlm.iterrows():
         key_raw = row.iloc[2]
         if pd.isna(key_raw):
             continue
-            
+        
         key_original = str(key_raw).strip()
         key_normalized = normalize_obicis(key_original)
         
         if key_normalized in zlm_dict:
             duplicity_count += 1
-            st.write(f"⚠️ Duplicitní OBICIS: {key_original} -> {key_normalized} (použije se první výskyt)")
             continue
             
-        kod_zbozi = str(row.iloc[1])  # Kód zboží
-        klubova_info = str(row.iloc[12]) if len(row) > 12 else ""  # Klubová informace
-        
         zlm_dict[key_normalized] = {
-            'kod_zbozi': kod_zbozi,
-            'klubova_info': klubova_info,
-            'original_key': key_original
+            'kod_zbozi': str(row.iloc[1]),
+            'klubova_info': str(row.iloc[12]) if len(row) > 12 else ""
         }
-        
-        zlm_dict_original[key_original] = key_normalized
     
     if duplicity_count > 0:
-        st.warning(f"Nalezeno {duplicity_count} duplicitních OBICIS kódů v ZLM souboru!")
+        st.warning(f"Nalezeno a ignorováno {duplicity_count} duplicitních OBICIS kódů v ZLM souboru (použil se první výskyt).")
     
-    st.write(f"Indexy vytvořeny. Vazby produktu: {len(vazby_produktu_dict)} klíčů, ZLM: {len(zlm_dict)} klíčů")
-    
-    # DIAGNOSTIKA: Zobrazení struktury souborů
-    st.write("**DIAGNOSTIKA - Struktura souborů:**")
-    st.write(f"Vazby produktu - sloupce: {list(vazby_produktu.columns)}, řádků: {len(vazby_produktu)}")
-    st.write(f"Vazby akcí - sloupce: {list(vazby_akci.columns)}, řádků: {len(vazby_akci)}")
-    st.write(f"ZLM - sloupce: {list(zlm.columns)}, řádků: {len(zlm)}")
-    
-    # Ukázka několika ukázkových klíčů z indexů
-    st.write(f"Ukázka klíčů z vazby_produktu_dict: {list(vazby_produktu_dict.keys())[:10]}")
-    st.write(f"Ukázka originálních klíčů z ZLM: {list(zlm_dict_original.keys())[:10]}")
-    st.write(f"Ukázka normalizovaných klíčů z ZLM: {list(zlm_dict.keys())[:10]}")
+    st.write(f"Indexy vytvořeny. Vazby produktu: {len(vazby_produktu_dict)} klíčů, ZLM: {len(zlm_dict)} klíčů.")
     
     progress_bar = st.progress(0)
     total_rows = len(vazby_akci)
@@ -161,156 +127,97 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm):
     for index, radek_akce in vazby_akci.iterrows():
         progress_bar.progress((index + 1) / total_rows)
         
-        if index < 3:  # Zobrazíme diagnostiku pouze pro první 3 řádky
-            st.write(f"\n**ZPRACOVÁNÍ ŘÁDKU {index + 1}:**")
-        
-        novy_radek = {}
         id_dlazdice_raw = radek_akce.iloc[1]
         if pd.isna(id_dlazdice_raw):
             continue
-        id_dlazdice = str(id_dlazdice_raw).strip()  # Normalizujeme ID dlaždice
-        
-        if index < 3:
-            st.write(f"ID dlaždice: '{id_dlazdice}'")
+        id_dlazdice = str(id_dlazdice_raw).strip()
         
         obicis_list = vazby_produktu_dict.get(id_dlazdice, [])
-        
-        if index < 3:
-            st.write(f"Nalezené OBICIS kódy: {obicis_list}")
-            if not obicis_list:
-                st.warning(f"⚠️ Nenalezeny žádné OBICIS kódy pro ID dlaždice: '{id_dlazdice}'")
-                st.write(f"Dostupné klíče v vazby_produktu_dict (prvních 20): {list(vazby_produktu_dict.keys())[:20]}")
-        
         kody_zbozi = []
         klubova_akce = 0
         
-        # LOGIKA PRO KLUBovou akci - Krok 1: Kontrola sloupce H z KEN souboru
+        # LOGIKA PRO KLUBovou akci
         ken_sloupec_h = str(radek_akce.iloc[7]).strip() if len(radek_akce) > 7 else ""
         if ken_sloupec_h == "1":
             klubova_akce = 1
         
-        # Zpracování OBICIS kódů a LOGIKA PRO KLUBovou akci - Krok 2: Kontrola ZLM
+        zlm_klub_info_values = []
+        zlm_condition_met = False
         for obicis in obicis_list:
-            obicis_original = str(obicis).strip()
-            obicis_normalized = normalize_obicis(obicis_original)
-            
-            if index < 3:
-                st.write(f"  Zpracovávám OBICIS: '{obicis_original}' -> normalizováno: '{obicis_normalized}'")
-            
+            obicis_normalized = normalize_obicis(obicis)
             zlm_data = zlm_dict.get(obicis_normalized)
             
             if zlm_data:
                 raw_kod = zlm_data['kod_zbozi']
-                klubova_info = zlm_data['klubova_info']
-                original_key = zlm_data['original_key']
+                kody_zbozi.append(str(raw_kod).split('.')[0].zfill(18))
                 
-                if index < 3:
-                    st.write(f"    ✅ Nalezen v ZLM! Originální klíč: '{original_key}', Surový kód: '{raw_kod}'")
-                
-                kod_zbozi = str(raw_kod).split('.')[0].zfill(18)
-                kody_zbozi.append(kod_zbozi)
-                
-                if index < 3:
-                    st.write(f"    Zpracovaný kód: '{kod_zbozi}'")
-                
-                if klubova_info.strip().upper().startswith("MK"):
-                    klubova_akce = 1 # Nastaví se na 1, pokud je podmínka splněna
-                    if index < 3:
-                        st.write(f"    -> ✅ Klubová akce nastavena na 1 - ZLM obsahuje 'MK' pro OBICIS: {obicis_normalized}")
-            else:
-                if index < 3:
-                    st.warning(f"    ⚠️ Nenalezen záznam v ZLM pro OBICIS: '{obicis_normalized}' (originál: '{obicis_original}')")
-
-        # LOGIKA PRO KLUBovou akci - Krok 3: Kontrola prefixu ID dlaždice
-        slug = str(id_dlazdice).lower()
+                klub_info = zlm_data['klubova_info'].strip()
+                zlm_klub_info_values.append(f"'{klub_info}' (z OBICIS {obicis_normalized})")
+                if klub_info.upper().startswith("MK"):
+                    klubova_akce = 1
+                    zlm_condition_met = True
+        
+        slug = id_dlazdice.lower()
         if slug.startswith("sk"):
             klubova_akce = 1
 
-        # Určení hodnoty pro sloupec D na základě slugu
-        if slug.startswith("te"):
-            column_d_value = "leaflet"
-        elif slug.startswith("ma"):
-            column_d_value = "magazine"
-        elif slug.startswith("dz"):
-            column_d_value = "longTermDiscount"
-        elif slug.startswith("kp"):
-            column_d_value = "coupons"
-        else:
-            column_d_value = "leaflet"  # Výchozí hodnota
+        # Určení hodnoty pro sloupec D
+        if slug.startswith("te"): column_d_value = "leaflet"
+        elif slug.startswith("ma"): column_d_value = "magazine"
+        elif slug.startswith("dz"): column_d_value = "longTermDiscount"
+        elif slug.startswith("kp"): column_d_value = "coupons"
+        else: column_d_value = "leaflet"
 
-        # ####################################################################
-        # ## NOVÁ DIAGNOSTIKA: Přehled pro sloupec B (klubová akce)         ##
-        # ####################################################################
-        if index < 3:
+        # ## PLNÁ DIAGNOSTIKA (POKUD JE ZAPNUTÁ) ##
+        if full_diagnostics:
             st.markdown("---")
-            st.write(f"**DIAGNOSTICKÝ PŘEHLED pro 'klubova_akce' (Sloupec B) pro řádek {index+1}:**")
+            st.write(f"**DIAGNOSTICKÝ PŘEHLED pro řádek {index+1} (ID dlaždice: `{id_dlazdice}`)**")
             
-            # Vyhodnocení podmínky 1
-            st.write(f"  - `Podmínka 1 (KEN Sloupec H)`: Hodnota je **'{ken_sloupec_h}'**. Podmínka (`== '1'`) je **{'splněna' if ken_sloupec_h == '1' else 'nesplněna'}**.")
+            # Podmínka 1
+            st.write(f"- `Podmínka 1 (KEN Sloupec H)`: Nalezená hodnota je **'{ken_sloupec_h}'**. Podmínka (`== '1'`) je **{'splněna' if ken_sloupec_h == '1' else 'nesplněna'}**.")
             
-            # Vyhodnocení podmínky 2
-            relevant_mk_info = []
-            for obicis in obicis_list:
-                obicis_normalized = normalize_obicis(str(obicis).strip())
-                zlm_data = zlm_dict.get(obicis_normalized)
-                if zlm_data and zlm_data['klubova_info'].strip().upper().startswith("MK"):
-                    relevant_mk_info.append(f"'{zlm_data['klubova_info']}' (z OBICIS {obicis_normalized})")
-            
-            if relevant_mk_info:
-                st.write(f"  - `Podmínka 2 (ZLM Sloupec M)`: Nalezeny hodnoty začínající na 'MK': {', '.join(relevant_mk_info)}. Podmínka je **splněna**.")
+            # Podmínka 2
+            if not zlm_klub_info_values:
+                msg = "Pro OBICIS kódy nebyly v ZLM nalezeny žádné relevantní záznamy."
             else:
-                st.write(f"  - `Podmínka 2 (ZLM Sloupec M)`: Nenalezena žádná hodnota začínající na 'MK'. Podmínka je **nesplněna**.")
+                msg = f"Nalezené hodnoty v ZLM sloupci M: {', '.join(zlm_klub_info_values)}."
+            st.write(f"- `Podmínka 2 (ZLM Sloupec M)`: {msg} Podmínka (začíná na 'MK') je **{'splněna' if zlm_condition_met else 'nesplněna'}**.")
 
-            # Vyhodnocení podmínky 3
-            st.write(f"  - `Podmínka 3 (ID dlaždice)`: Hodnota je **'{slug}'**. Podmínka (`začíná na 'sk'`) je **{'splněna' if slug.startswith('sk') else 'nesplněna'}**.")
+            # Podmínka 3
+            st.write(f"- `Podmínka 3 (ID dlaždice)`: Hodnota je **'{slug}'**. Podmínka (`začíná na 'sk'`) je **{'splněna' if slug.startswith('sk') else 'nesplněna'}**.")
             
-            st.success(f"  - **FINÁLNÍ HODNOTA pro Sloupec B bude: `{klubova_akce}`**")
-            st.markdown("---")
-
-        # ID značky s normalizací textu
+            st.success(f"-> **FINÁLNÍ HODNOTA pro Sloupec B bude: `{klubova_akce}`**")
+        
+        # Sestavení řádku
         nazev_znacky = radek_akce.iloc[6]
-        normalized_nazev = normalize_text(nazev_znacky)
-        id_znacky = normalized_vazby_znacek.get(normalized_nazev, "")
+        id_znacky = normalized_vazby_znacek.get(normalize_text(nazev_znacky), "")
         
-        # Zpracování datumu - úprava formátu pro sloupec H
         datum_hodnota = radek_akce.iloc[4]
-        if isinstance(datum_hodnota, datetime):
-            datum_string = datum_hodnota.strftime('%Y-%m-%d')
-        else:
-            try:
-                if pd.isna(datum_hodnota):
-                    datum_string = ""
-                else:
-                    datum_obj = pd.to_datetime(datum_hodnota)
-                    datum_string = datum_obj.strftime('%Y-%m-%d')
-            except:
-                datum_string = str(datum_hodnota)
-        
-        sloupec_h_hodnota = f"{datum_string} 23:59" if datum_string else ""
+        try:
+            datum_string = pd.to_datetime(datum_hodnota).strftime('%Y-%m-%d') if not pd.isna(datum_hodnota) else ""
+        except (ValueError, TypeError):
+            datum_string = str(datum_hodnota)
         
         novy_radek = {
             vzor.columns[0]: 1,
-            vzor.columns[1]: klubova_akce,  # Použití finální hodnoty
+            vzor.columns[1]: klubova_akce,
             vzor.columns[2]: radek_akce.iloc[5],
             vzor.columns[3]: column_d_value,
             vzor.columns[4]: radek_akce.iloc[16] if len(radek_akce) > 16 else "",
             vzor.columns[5]: slug,
             vzor.columns[6]: radek_akce.iloc[2],
-            vzor.columns[7]: sloupec_h_hodnota,
-            vzor.columns[8]: f"{str(id_dlazdice).upper()}.jpg",
+            vzor.columns[7]: f"{datum_string} 23:59" if datum_string else "",
+            vzor.columns[8]: f"{id_dlazdice.upper()}.jpg",
             vzor.columns[9]: id_znacky,
             vzor.columns[10]: ','.join(kody_zbozi)
         }
-        
-        if index < 3:
-            st.write(f"**Hodnota posledního sloupce: '{','.join(kody_zbozi)}'**")
-        
         vysledek = pd.concat([vysledek, pd.DataFrame([novy_radek])], ignore_index=True)
     
     progress_bar.progress(1.0)
     st.success("Zpracování dokončeno!")
     
     return vysledek
+
 
 # Streamlit UI s konfigurací pro větší soubory
 st.set_page_config(
@@ -322,29 +229,19 @@ st.set_page_config(
 st.title("Generátor marketingových akcí - Upravená verze s novou logikou klubové akce")
 st.write("Nahrajte 3 požadované soubory ve formátu XLSX (podporuje až desítky tisíc řádků):")
 
-# Zvýšený limit pro upload souborů
-max_upload_size = 200  # MB
-st.write(f"Maximální velikost souboru: {max_upload_size} MB")
-
 # Použití obecného typu souboru místo specifikace přípony
-vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type=None, help="Excel soubor s vazbami produktů")
-vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type=None, help="Excel soubor s vazbami akcí")
-zlm_file = st.file_uploader("3. Soubor ZLM", type=None, help="Excel soubor ZLM (může obsahovat tisíce řádků)")
+vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type="xlsx", help="Excel soubor s vazbami produktů")
+vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type="xlsx", help="Excel soubor s vazbami akcí")
+zlm_file = st.file_uploader("3. Soubor ZLM", type="xlsx", help="Excel soubor ZLM (může obsahovat tisíce řádků)")
+
+st.markdown("---")
+st.warning("⚠️ Zapnutí plné diagnostiky může výrazně zpomalit zpracování u velkých souborů a zahltit obrazovku výpisy.")
+full_diagnostics_checkbox = st.checkbox("Zobrazit detailní diagnostiku pro každý řádek")
 
 if st.button("Spustit generování s upravenou logikou klubové akce"):
     if all([vazby_produktu_file, vazby_akci_file, zlm_file]):
         try:
-            with st.spinner('Načítám a zpracovávám data (může trvat několik minut pro velké soubory)...'):
-                # Kontrola, zda soubory mají správnou příponu .xlsx (case-insensitive)
-                for file, name in [(vazby_produktu_file, "VAZBY produktu"), 
-                                   (vazby_akci_file, "KEN (vazby akcí)"), 
-                                   (zlm_file, "ZLM")]:
-                    _, ext = os.path.splitext(file.name)
-                    if ext.lower() != '.xlsx':
-                        st.error(f"Soubor {name} nemá příponu .xlsx. Nahrajte prosím správný formát souboru.")
-                        st.stop()
-                
-                # Načtení souborů s optimalizací
+            with st.spinner('Načítám a zpracovávám data...'):
                 vazby_produktu = nacti_velky_excel(vazby_produktu_file, "VAZBY produktu")
                 vazby_akci = nacti_velky_excel(vazby_akci_file, "KEN (vazby akcí)")
                 zlm = nacti_velky_excel(zlm_file, "ZLM")
@@ -353,10 +250,9 @@ if st.button("Spustit generování s upravenou logikou klubové akce"):
                     st.error("Nepodařilo se načíst všechny soubory.")
                     st.stop()
                 
-                vysledek = zpracuj_soubory(vazby_produktu, vazby_akci, zlm)
+                vysledek = zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics_checkbox)
                 
                 if vysledek is not None:
-                    # Upravený formát data a času
                     timestamp = datetime.now().strftime('%d.%m.%Y %H:%M')
                     filename_timestamp = datetime.now().strftime('%Y%m%d_%H%M')
                     
@@ -369,11 +265,9 @@ if st.button("Spustit generování s upravenou logikou klubové akce"):
                         mime="text/csv"
                     )
                     
-                    # Přidání možnosti zobrazit tabulku s výsledky
                     if st.checkbox("Zobrazit výslednou tabulku"):
                         st.dataframe(vysledek)
                         
-                    # Statistiky zpracování
                     st.write("**Statistiky zpracování:**")
                     st.write(f"- Zpracováno řádků: {len(vysledek)}")
                     st.write(f"- Řádky s vyplněnými kódy zboží: {len(vysledek[vysledek.iloc[:, 10] != ''])}")
@@ -382,13 +276,12 @@ if st.button("Spustit generování s upravenou logikou klubové akce"):
                 
         except Exception as e:
             st.error(f"Došlo k chybě: {str(e)}")
-            # Přidáno detailní zobrazení chyby
             import traceback
             st.error(f"Detaily chyby: {traceback.format_exc()}")
     else:
         st.warning("Prosím, nahrajte všechny požadované soubory!")
 
-# Přidáme informace o nové logice
+# Původní expander bloky
 with st.expander("🔧 Informace o nové logice klubové akce"):
     st.write("""
     **Nová logika pro sloupec B (klubová akce):**
