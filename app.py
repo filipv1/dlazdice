@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 
 # Konfigurujeme pandas pro lepší práci s velkými soubory
@@ -265,8 +265,10 @@ if st.button("Spustit generování s upravenou logikou klubové akce"):
                 vysledek = zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics_checkbox)
                 
                 if vysledek is not None:
-                    timestamp = datetime.now().strftime('%d.%m.%Y %H:%M')
-                    filename_timestamp = datetime.now().strftime('%Y%m%d_%H%M')
+                    # UPRAVENO: Přidání 2 hodin pro letní čas
+                    letni_cas = datetime.now() + timedelta(hours=2)
+                    timestamp = letni_cas.strftime('%d.%m.%Y %H:%M')
+                    filename_timestamp = letni_cas.strftime('%Y%m%d_%H%M')
                     
                     csv = vysledek.to_csv(index=False, sep=';', encoding='utf-8-sig')
                     st.success(f"Generování úspěšně dokončeno! (Datum a čas: {timestamp})")
@@ -336,4 +338,19 @@ with st.expander("🔧 Informace o opravě OBICIS normalizace"):
     - `32001256` i `0032001256` se budou považovat za stejný kód
     - Zvýší se úspěšnost párování OBICIS kódů
     - Diagnostika ukáže jak originální, tak normalizované hodnoty
+    """)
+
+with st.expander("🕒 Informace o letním času"):
+    st.write("""
+    **Úprava pro letní čas:**
+    
+    - K aktuálnímu času se automaticky přidávají 2 hodiny
+    - Tato úprava se vztahuje na:
+        - Zobrazovaný čas dokončení zpracování
+        - Název stahovaného souboru (formát: vysledek_YYYYMMDD_HHMM.csv)
+    
+    **Příklad:**
+    - Systémový čas: 14:30
+    - Zobrazený čas: 16:30 (+ 2 hodiny)
+    - Název souboru: vysledek_20240715_1630.csv
     """)
