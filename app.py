@@ -15,24 +15,6 @@ def normalize_text(text):
     # Odstranění nadbytečných mezer, převod na malá písmena
     return re.sub(r'\s+', '', text.lower())
 
-# NOVÁ FUNKCE: Normalizace OBICIS kódů
-def normalize_obicis(obicis_code):
-    """Normalizuje OBICIS kód odstraněním úvodních nul a mezer"""
-    if pd.isna(obicis_code):
-        return ""
-    
-    # Převedeme na string a odstraníme mezery
-    code_str = str(obicis_code).strip()
-    
-    # Odstraníme úvodní nuly
-    code_normalized = code_str.lstrip('0')
-    
-    # Pokud je kód prázdný (byly tam jen nuly), vrátíme "0"
-    if not code_normalized:
-        code_normalized = "0"
-    
-    return code_normalized
-
 # Načtení defaultních souborů z kořenového adresáře
 @st.cache_data(max_entries=3, ttl=3600)  # Zvýšený cache pro větší soubory
 def nacti_defaultni_soubory():
@@ -89,35 +71,42 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
     
     normalized_vazby_znacek = {normalize_text(row.iloc[2]): row.iloc[0] for _, row in vazby_znacek.iterrows()}
     
+    # Vytvoření slovníku vazeb produktů - klíčem je ID dlaždice (sloupec C), hodnotou jsou SAPID kódy (sloupec A)
     vazby_produktu_dict = {}
     for _, row in vazby_produktu.iterrows():
-        key_raw, value_raw = row.iloc[2], row.iloc[0]
-        if pd.isna(key_raw) or pd.isna(value_raw):
+        id_dlazdice = row.iloc[2]  # sloupec C - ID dlaždice
+        sapid_kod = row.iloc[0]    # sloupec A - SAPID kód
+        
+        if pd.isna(id_dlazdice) or pd.isna(sapid_kod):
             continue
-        key = str(key_raw).strip()
-        vazby_produktu_dict.setdefault(key, []).append(str(value_raw).strip())
+            
+        key = str(id_dlazdice).strip()
+        sapid_value = str(sapid_kod).strip()
+        
+        vazby_produktu_dict.setdefault(key, []).append(sapid_value)
     
+    # Vytvoření slovníku ZLM - klíčem je SAPID kód (sloupec A), hodnotou jsou data
     zlm_dict = {}
     duplicity_count = 0
     for _, row in zlm.iterrows():
-        key_raw = row.iloc[2]
-        if pd.isna(key_raw):
+        sapid_kod = row.iloc[0]  # sloupec A - SAPID kód
+        
+        if pd.isna(sapid_kod):
             continue
         
-        key_original = str(key_raw).strip()
-        key_normalized = normalize_obicis(key_original)
+        sapid_key = str(sapid_kod).strip()
         
-        if key_normalized in zlm_dict:
+        if sapid_key in zlm_dict:
             duplicity_count += 1
             continue
             
-        zlm_dict[key_normalized] = {
-            'kod_zbozi': str(row.iloc[1]),
-            'klubova_info': str(row.iloc[12]) if len(row) > 12 else ""
+        zlm_dict[sapid_key] = {
+            'kod_zbozi': str(row.iloc[1]),  # sloupec B - kód zboží
+            'klubova_info': str(row.iloc[12]) if len(row) > 12 else ""  # sloupec M - klubová info
         }
     
     if duplicity_count > 0:
-        st.warning(f"Nalezeno a ignorováno {duplicity_count} duplicitních OBICIS kódů v ZLM souboru (použil se první výskyt).")
+        st.warning(f"Nalezeno a ignorováno {duplicity_count} duplicitních SAPID kódů v ZLM souboru (použil se první výskyt).")
     
     st.write(f"Indexy vytvořeny. Vazby produktu: {len(vazby_produktu_dict)} klíčů, ZLM: {len(zlm_dict)} klíčů.")
     
@@ -132,11 +121,12 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
             continue
         id_dlazdice = str(id_dlazdice_raw).strip()
         
-        obicis_list = vazby_produktu_dict.get(id_dlazdice, [])
+        # Získání SAPID kódů pro dané ID dlaždice
+        sapid_list = vazby_produktu_dict.get(id_dlazdice, [])
         kody_zbozi = []
         klubova_akce = 0
         
-        # ### OPRAVENÁ LOGIKA ZDE ###
+        # ### LOGIKA PRO KLUBOVOU AKCI ###
         # LOGIKA PRO KLUBovou akci - Krok 1: Kontrola sloupce H z KEN
         ken_sloupec_h = str(radek_akce.iloc[7]).strip() if len(radek_akce) > 7 else ""
         is_ken_h_one = False
@@ -151,19 +141,18 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
         if is_ken_h_one:
             klubova_akce = 1
         
-        # LOGIKA PRO KLUBovou akci - Krok 2: Kontrola ZLM
+        # LOGIKA PRO KLUBovou akci - Krok 2: Kontrola ZLM na základě SAPID kódů
         zlm_klub_info_values = []
         zlm_condition_met = False
-        for obicis in obicis_list:
-            obicis_normalized = normalize_obicis(obicis)
-            zlm_data = zlm_dict.get(obicis_normalized)
+        for sapid in sapid_list:
+            zlm_data = zlm_dict.get(sapid)
             
             if zlm_data:
                 raw_kod = zlm_data['kod_zbozi']
                 kody_zbozi.append(str(raw_kod).split('.')[0].zfill(18))
                 
                 klub_info = zlm_data['klubova_info'].strip()
-                zlm_klub_info_values.append(f"'{klub_info}' (z OBICIS {obicis_normalized})")
+                zlm_klub_info_values.append(f"'{klub_info}' (z SAPID {sapid})")
                 if klub_info.upper().startswith("MK"):
                     klubova_akce = 1
                     zlm_condition_met = True
@@ -190,7 +179,7 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
             
             # Podmínka 2
             if not zlm_klub_info_values:
-                msg = "Pro OBICIS kódy nebyly v ZLM nalezeny žádné relevantní záznamy."
+                msg = "Pro SAPID kódy nebyly v ZLM nalezeny žádné relevantní záznamy."
             else:
                 msg = f"Nalezené hodnoty v ZLM sloupci M: {', '.join(zlm_klub_info_values)}."
             st.write(f"- `Podmínka 2 (ZLM Sloupec M)`: {msg} Podmínka (začíná na 'MK') je **{'splněna' if zlm_condition_met else 'nesplněna'}**.")
@@ -199,6 +188,10 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
             st.write(f"- `Podmínka 3 (ID dlaždice)`: Hodnota je **'{slug}'**. Podmínka (`začíná na 'sk'`) je **{'splněna' if slug.startswith('sk') else 'nesplněna'}**.")
             
             st.success(f"-> **FINÁLNÍ HODNOTA pro Sloupec B bude: `{klubova_akce}`**")
+            
+            # Diagnostika SAPID kódů
+            st.write(f"- `SAPID kódy nalezené pro ID dlaždice '{id_dlazdice}'`: {sapid_list if sapid_list else 'žádné'}")
+            st.write(f"- `Vygenerované kódy zboží`: {len(kody_zbozi)} kódů")
         
         # Sestavení řádku
         nazev_znacky = radek_akce.iloc[6]
@@ -238,19 +231,19 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("Generátor marketingových akcí - Upravená verze s novou logikou klubové akce")
+st.title("Generátor marketingových akcí - SAPID verze")
 st.write("Nahrajte 3 požadované soubory ve formátu XLSX (podporuje až desítky tisíc řádků):")
 
 # Použití obecného typu souboru místo specifikace přípony
-vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu", type="xlsx", help="Excel soubor s vazbami produktů")
+vazby_produktu_file = st.file_uploader("1. Soubor VAZBY produktu (obsahuje SAPID kódy)", type="xlsx", help="Excel soubor s vazbami produktů - sloupec A obsahuje SAPID kódy")
 vazby_akci_file = st.file_uploader("2. Soubor KEN (vazby akcí)", type="xlsx", help="Excel soubor s vazbami akcí")
-zlm_file = st.file_uploader("3. Soubor ZLM", type="xlsx", help="Excel soubor ZLM (může obsahovat tisíce řádků)")
+zlm_file = st.file_uploader("3. Soubor ZLM (obsahuje SAPID kódy)", type="xlsx", help="Excel soubor ZLM - sloupec A obsahuje SAPID kódy")
 
 st.markdown("---")
 st.warning("⚠️ Zapnutí plné diagnostiky může výrazně zpomalit zpracování u velkých souborů a zahltit obrazovku výpisy.")
 full_diagnostics_checkbox = st.checkbox("Zobrazit detailní diagnostiku pro každý řádek")
 
-if st.button("Spustit generování s upravenou logikou klubové akce"):
+if st.button("Spustit generování s SAPID kódy"):
     if all([vazby_produktu_file, vazby_akci_file, zlm_file]):
         try:
             with st.spinner('Načítám a zpracovávám data...'):
@@ -295,49 +288,46 @@ if st.button("Spustit generování s upravenou logikou klubové akce"):
     else:
         st.warning("Prosím, nahrajte všechny požadované soubory!")
 
-# Původní expander bloky
-with st.expander("🔧 Informace o nové logice klubové akce"):
+# Aktualizované expander bloky
+with st.expander("🔧 Informace o SAPID verzi"):
     st.write("""
-    **Nová logika pro sloupec B (klubová akce):**
+    **Změny v SAPID verzi:**
+    
+    **Nová struktura dat:**
+    - **Soubor VAZBY produktu**: Sloupec A nyní obsahuje SAPID kódy (dříve OBICIS)
+    - **Soubor ZLM**: Sloupec A nyní obsahuje SAPID kódy (dříve OBICIS)
+    - **Odstraněna složitá normalizace**: Není už potřeba řešit úvodní nuly u OBICIS kódů
+    
+    **Zjednodušené zpracování:**
+    - Přímé párování SAPID kódů mezi soubory
+    - Rychlejší zpracování díky odstranění normalizace
+    - Menší možnost chyb díky jednodušší logice
+    
+    **Zachované funkce:**
+    - Všechny původní logiky pro klubovou akci
+    - Kompletní diagnostika
+    - Statistiky zpracování
+    """)
+
+with st.expander("🔧 Informace o logice klubové akce"):
+    st.write("""
+    **Logika pro sloupec B (klubová akce):**
     
     **Sloupec B ve výsledku = 1**, pokud platí JAKÁKOLI z těchto podmínek:
     
     1. **Sloupec H z KEN souboru obsahuje "1"**
-        - Nová podmínka pro přímé označení klubové akce v KEN souboru
+        - Přímé označení klubové akce v KEN souboru
     
     2. **ZLM obsahuje "MK" v sloupci M (index 12)**
-        - Původní logika na základě klubové informace v ZLM
+        - Logika na základě klubové informace v ZLM (nyní pomocí SAPID kódů)
     
     3. **ID dlaždice začíná "sk"**
-        - Původní logika na základě prefixu ID
+        - Logika na základě prefixu ID
     
-    **Provázání dat:**
-    - Sloupec B z KEN → Sloupec F výsledku (identifikace)
-    - Sloupec H z KEN → Logika pro sloupec B výsledku (klubová akce)
-    
-    **Diagnostika:**
-    - Zobrazuje se, která podmínka způsobila nastavení klubové akce
-    - Přidaná statistika počtu řádků s klubovou akcí
-    """)
-
-with st.expander("🔧 Informace o opravě OBICIS normalizace"):
-    st.write("""
-    **Oprava problému s OBICIS kódy:**
-    
-    **Problém**: OBICIS kódy se v různých souborech liší formátem úvodních nul:
-    - V souboru VAZBY: `32001256` (bez úvodních nul)
-    - V souboru ZLM: `0032001256` (s úvodními nulami)
-    
-    **Řešení**:
-    1. **Funkce `normalize_obicis()`**: Odstraňuje úvodní nuly z OBICIS kódů
-    2. **Normalizace při indexování**: Všechny OBICIS kódy v ZLM jsou normalizovány při vytváření indexu
-    3. **Normalizace při vyhledávání**: OBICIS kódy z VAZBY jsou také normalizovány před vyhledáváním
-    4. **Zachování originálů**: Pro diagnostiku se uchovávají i originální formáty
-    
-    **Výsledek**: 
-    - `32001256` i `0032001256` se budou považovat za stejný kód
-    - Zvýší se úspěšnost párování OBICIS kódů
-    - Diagnostika ukáže jak originální, tak normalizované hodnoty
+    **Provázání dat pomocí SAPID:**
+    - ID dlaždice z KEN → SAPID kódy z VAZBY produktu
+    - SAPID kódy → Data z ZLM souboru
+    - Výsledné kódy zboží pro finální export
     """)
 
 with st.expander("🕒 Informace o letním času"):
@@ -353,4 +343,23 @@ with st.expander("🕒 Informace o letním času"):
     - Systémový čas: 14:30
     - Zobrazený čas: 16:30 (+ 2 hodiny)
     - Název souboru: vysledek_20240715_1630.csv
+    """)
+
+with st.expander("📊 Struktura souborů"):
+    st.write("""
+    **Struktura vstupních souborů:**
+    
+    **1. VAZBY produktu:**
+    - Sloupec A: SAPID kódy
+    - Sloupec C: ID dlaždice
+    
+    **2. KEN (vazby akcí):**
+    - Sloupec B: ID dlaždice
+    - Sloupec H: Označení klubové akce (1 = klubová akce)
+    - Další sloupce: Názvy, data, značky atd.
+    
+    **3. ZLM:**
+    - Sloupec A: SAPID kódy
+    - Sloupec B: Kódy zboží
+    - Sloupec M: Klubová informace (MK = klubová akce)
     """)
