@@ -17,21 +17,13 @@ def normalize_text(text):
 
 # NOVÁ FUNKCE: Normalizace SAPID kódů
 def normalize_sapid(sapid_code):
-    """Normalizuje SAPID kód odstraněním úvodních nul a mezer"""
+    """Normalizuje SAPID kód - pouze převede na string a odstraní mezery"""
     if pd.isna(sapid_code):
         return ""
     
-    # Převedeme na string a odstraníme mezery
-    code_str = str(sapid_code).strip()
-    
-    # Odstraníme úvodní nuly
-    code_normalized = code_str.lstrip('0')
-    
-    # Pokud je kód prázdný (byly tam jen nuly), vrátíme "0"
-    if not code_normalized:
-        code_normalized = "0"
-    
-    return code_normalized
+    # SAPID jsou čísla, nepotřebujeme odstraňovat úvodní nuly
+    # Pouze převedeme na string a odstraníme mezery
+    return str(sapid_code).strip()
 
 # Načtení defaultních souborů z kořenového adresáře
 @st.cache_data(max_entries=3, ttl=3600)  # Zvýšený cache pro větší soubory
@@ -45,6 +37,36 @@ def nacti_defaultni_soubory():
         return None, None
 
 # Optimalizovaná funkce pro načtení velkých Excel souborů
+@st.cache_data(max_entries=10, ttl=3600)
+def nacti_velky_excel(file_data, file_name):
+    """Načte Excel soubor s optimalizací pro velké soubory"""
+    try:
+        # Pokusíme se načíst soubor po částech, pokud je velmi velký
+        df = pd.read_excel(
+            file_data,
+            engine='openpyxl',  # Explicitně specifikujeme engine
+            dtype=str,  # Načteme vše jako string, abychom předešli problémům s datovými typy
+            na_filter=False  # Nezaměňujeme prázdné buňky za NaN
+        )
+        
+        # Pro VAZBY a ZLM soubory necháme SAPID jako string
+        # Konvertujeme pouze vybrané sloupce na čísla, pokud je to potřeba
+        if "KEN" in file_name:
+            # Pro KEN můžeme některé sloupce převést na čísla
+            for col in df.columns:
+                if col not in ['ID Dlaždice', 'Značka', 'Název'] and df[col].dtype == 'object':
+                    try:
+                        pd.to_numeric(df[col], errors='raise')
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    except (ValueError, TypeError):
+                        pass
+        
+        st.success(f"Úspěšně načten soubor {file_name}: {len(df)} řádků, {len(df.columns)} sloupců")
+        return df
+        
+    except Exception as e:
+        st.error(f"Chyba při načítání souboru {file_name}: {e}")
+        return None
 @st.cache_data(max_entries=10, ttl=3600)
 def nacti_velky_excel(file_data, file_name):
     """Načte Excel soubor s optimalizací pro velké soubory"""
@@ -92,21 +114,22 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
     # ZMĚNA: Nyní používáme SAPID ze sloupce A místo OBICIS
     vazby_produktu_dict = {}
     for _, row in vazby_produktu.iterrows():
-        key_raw = row.iloc[1]  # ID dlaždice ve sloupci B
+        key_raw = row.iloc[2]  # ID dlaždice ve sloupci C
         value_raw = row.iloc[0]  # SAPID ve sloupci A (dříve zde byl OBICIS)
         if pd.isna(key_raw) or pd.isna(value_raw):
             continue
         key = str(key_raw).strip()
-        # Ukládáme SAPID místo OBICIS
-        vazby_produktu_dict.setdefault(key, []).append(str(value_raw).strip())
+        # Ukládáme SAPID místo OBICIS - převedeme na string
+        sapid_str = str(value_raw).strip()
+        vazby_produktu_dict.setdefault(key, []).append(sapid_str)
     
     # ZMĚNA: ZLM slovník nyní pracuje se SAPID
-    # Předpokládáme, že ZLM soubor bude mít SAPID ve stejném sloupci jako dříve OBICIS
+    # SAPID je ve sloupci B (index 1) v ZLM
     zlm_dict = {}
     duplicity_count = 0
     for _, row in zlm.iterrows():
-        # SAPID je ve sloupci C (index 2) v ZLM - může být potřeba upravit podle skutečné struktury ZLM
-        key_raw = row.iloc[2]
+        # SAPID je ve sloupci B (index 1) v ZLM
+        key_raw = row.iloc[1]
         if pd.isna(key_raw):
             continue
         
@@ -115,10 +138,12 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
         
         if key_normalized in zlm_dict:
             duplicity_count += 1
+            if full_diagnostics:
+                st.warning(f"Duplicitní SAPID: {key_normalized}")
             continue
             
         zlm_dict[key_normalized] = {
-            'kod_zbozi': str(row.iloc[1]),
+            'kod_zbozi': str(row.iloc[1]).strip(),  # Kód zboží je také SAPID ve sloupci B
             'klubova_info': str(row.iloc[12]) if len(row) > 12 else ""
         }
     
@@ -126,6 +151,14 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
         st.warning(f"Nalezeno a ignorováno {duplicity_count} duplicitních SAPID kódů v ZLM souboru (použil se první výskyt).")
     
     st.write(f"Indexy vytvořeny. Vazby produktu: {len(vazby_produktu_dict)} klíčů, ZLM: {len(zlm_dict)} klíčů.")
+    
+    # Debug výpis pro ověření
+    if full_diagnostics and len(vazby_produktu_dict) > 0:
+        first_key = list(vazby_produktu_dict.keys())[0]
+        st.write(f"**Debug - příklad dat:**")
+        st.write(f"- První klíč ve VAZBY: {first_key}")
+        st.write(f"- SAPID pro tento klíč: {vazby_produktu_dict[first_key][:3]}")
+        st.write(f"- První 3 klíče v ZLM: {list(zlm_dict.keys())[:3]}")
     
     progress_bar = st.progress(0)
     total_rows = len(vazby_akci)
@@ -166,10 +199,12 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
             
             if zlm_data:
                 raw_kod = zlm_data['kod_zbozi']
-                kody_zbozi.append(str(raw_kod).split('.')[0].zfill(18))
+                # Formátujeme kód zboží - doplníme nulami zleva na 18 znaků
+                formatted_kod = str(raw_kod).split('.')[0].zfill(18)
+                kody_zbozi.append(formatted_kod)
                 
                 klub_info = zlm_data['klubova_info'].strip()
-                zlm_klub_info_values.append(f"'{klub_info}' (z SAPID {sapid_normalized})")
+                zlm_klub_info_values.append(f"'{klub_info}' (z SAPID {sapid})")
                 if klub_info.upper().startswith("MK"):
                     klubova_akce = 1
                     zlm_condition_met = True
@@ -190,6 +225,16 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
         if full_diagnostics:
             st.markdown("---")
             st.write(f"**DIAGNOSTICKÝ PŘEHLED pro řádek {index+1} (ID dlaždice: `{id_dlazdice}`)**")
+            
+            # Zobrazení SAPID
+            st.write(f"- `SAPID z VAZBY`: Nalezeno {len(sapid_list)} SAPID")
+            if sapid_list:
+                st.write(f"  - První 3 SAPID: {', '.join(str(s) for s in sapid_list[:3])}")
+            
+            # Zobrazení nalezených kódů zboží
+            st.write(f"- `Kódy zboží ze ZLM`: Nalezeno {len(kody_zbozi)} kódů")
+            if kody_zbozi:
+                st.write(f"  - První 3 kódy: {', '.join(kody_zbozi[:3])}")
             
             # Podmínka 1
             st.write(f"- `Podmínka 1 (KEN Sloupec H)`: Nalezená hodnota je **'{ken_sloupec_h}'**. Podmínka (číselně == 1) je **{'splněna' if is_ken_h_one else 'nesplněna'}**.")
@@ -345,16 +390,15 @@ with st.expander("🔧 Informace o normalizaci SAPID"):
     st.write("""
     **Normalizace SAPID kódů:**
     
-    **Problém**: SAPID kódy se mohou v různých souborech lišit formátem úvodních nul
+    SAPID kódy jsou numerické identifikátory produktů, které nahrazují původní OBICIS kódy.
     
-    **Řešení**:
-    1. **Funkce `normalize_sapid()`**: Odstraňuje úvodní nuly z SAPID kódů
-    2. **Normalizace při indexování**: Všechny SAPID kódy jsou normalizovány
-    3. **Zachování originálů**: Pro diagnostiku se uchovávají i originální formáty
+    **Zpracování:**
+    1. **Funkce `normalize_sapid()`**: Převádí SAPID na string a odstraňuje mezery
+    2. **Zachování hodnoty**: Na rozdíl od OBICIS, u SAPID neodstraňujeme úvodní nuly, protože jsou to čísla
+    3. **Formátování výstupu**: Kódy zboží se ve výsledku doplňují nulami zleva na 18 znaků
     
-    **Výsledek**: 
-    - SAPID kódy s různým počtem úvodních nul se budou považovat za stejné
-    - Zvýší se úspěšnost párování mezi soubory
+    **Příklad**: 
+    - SAPID: 288036 → Kód zboží: 000000000000288036
     """)
 
 with st.expander("🕒 Informace o letním času"):
