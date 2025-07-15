@@ -92,7 +92,7 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
     # ZMĚNA: Nyní používáme SAPID ze sloupce A místo OBICIS
     vazby_produktu_dict = {}
     for _, row in vazby_produktu.iterrows():
-        key_raw = row.iloc[2]  # ID dlaždice ve sloupci C
+        key_raw = row.iloc[1]  # ID dlaždice ve sloupci B
         value_raw = row.iloc[0]  # SAPID ve sloupci A (dříve zde byl OBICIS)
         if pd.isna(key_raw) or pd.isna(value_raw):
             continue
