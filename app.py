@@ -17,13 +17,15 @@ def normalize_text(text):
 
 # NOVÁ FUNKCE: Normalizace SAPID kódů
 def normalize_sapid(sapid_code):
-    """Normalizuje SAPID kód - pouze převede na string a odstraní mezery"""
     if pd.isna(sapid_code):
         return ""
-    
-    # SAPID jsou čísla, nepotřebujeme odstraňovat úvodní nuly
-    # Pouze převedeme na string a odstraníme mezery
-    return str(sapid_code).strip()
+    s = str(sapid_code).strip()
+    if s.lower() == "nan":
+        return ""
+    if "." in s:
+        # odřízni .0
+        s = s.split(".", 1)[0]  
+    return s
 
 # Načtení defaultních souborů z kořenového adresáře
 @st.cache_data(max_entries=3, ttl=3600)  # Zvýšený cache pro větší soubory
@@ -116,6 +118,7 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
     for _, row in vazby_produktu.iterrows():
         key_raw = row.iloc[2]  # ID dlaždice ve sloupci C
         value_raw = row.iloc[0]  # SAPID ve sloupci A (dříve zde byl OBICIS)
+
         if pd.isna(key_raw) or pd.isna(value_raw):
             continue
         key = str(key_raw).strip()
@@ -132,6 +135,7 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
         key_raw = row.iloc[1]
         if pd.isna(key_raw):
             continue
+
         
         key_original = str(key_raw).strip()
         key_normalized = normalize_sapid(key_original)
@@ -196,7 +200,7 @@ def zpracuj_soubory(vazby_produktu, vazby_akci, zlm, full_diagnostics=False):
         for sapid in sapid_list:
             sapid_normalized = normalize_sapid(sapid)
             zlm_data = zlm_dict.get(sapid_normalized)
-            
+
             if zlm_data:
                 raw_kod = zlm_data['kod_zbozi']
                 # Formátujeme kód zboží - doplníme nulami zleva na 18 znaků
