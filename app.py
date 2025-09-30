@@ -293,7 +293,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("Generátor marketingových akcí - Verze s SAPID")
+st.title("Generátor marketingových akcí - Verze s SAPID bez OBICIS")
 st.write("Nahrajte 3 požadované soubory ve formátu XLSX (podporuje až desítky tisíc řádků):")
 
 # Použití obecného typu souboru místo specifikace přípony
